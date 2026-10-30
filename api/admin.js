@@ -1,4 +1,5 @@
 import { checkPassword, endSession, isLoggedIn, passwordConfigured, startSession } from './_lib/auth.js';
+import { userFromRequest } from '../server/auth.js';
 import {
   deleteEnquiry, getContent, getVersion, isDbConfigured, listEnquiries, listVersions, saveContent, updateEnquiry,
 } from './_lib/db.js';
@@ -110,7 +111,16 @@ export default async function handler(req, res) {
   const action = actions[req.query.action];
   if (!action) return res.status(404).json({ error: 'Unknown action' });
   if (!PUBLIC.has(req.query.action)) {
-    if (!isLoggedIn(req)) return res.status(401).json({ error: 'Please log in again.' });
+    // With user accounts (JWT_SECRET set) permissions are read from the database on every
+    // request, so a deactivated user or a removed permission takes effect immediately.
+    // The single-password login is only honoured on deployments without user accounts.
+    if (process.env.JWT_SECRET) {
+      let accountUser = null;
+      try { accountUser = await userFromRequest(req); } catch { return res.status(503).json({ error: 'The database is not available.' }); }
+      if (!accountUser) return res.status(401).json({ error: 'Please log in again.' });
+      const permission = req.query.action === 'enquiries' || req.query.action === 'enquiry' ? 'enquiries' : 'website';
+      if (!accountUser.permissions[permission]) return res.status(403).json({ error: 'You do not have permission for this area.' });
+    } else if (!isLoggedIn(req)) return res.status(401).json({ error: 'Please log in again.' });
     if (!isDbConfigured()) return res.status(503).json({ error: 'The database is not set up.' });
   }
   try {

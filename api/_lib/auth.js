@@ -39,6 +39,17 @@ export function endSession(res) {
 }
 
 export function isLoggedIn(req) {
+  const account = (req.headers.cookie || '').split(';').map((c) => c.trim()).find((c) => c.startsWith('sra_session='));
+  if (account && process.env.JWT_SECRET) {
+    const [body, signature] = account.slice('sra_session='.length).split('.');
+    if (body && signature) {
+      try {
+        const expected = createHmac('sha256', process.env.JWT_SECRET).update(body).digest('base64url');
+        const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+        if (same(signature, expected) && Number(payload.exp) > Date.now()) return true;
+      } catch { /* reject malformed sessions */ }
+    }
+  }
   if (!passwordConfigured()) return false;
   const raw = (req.headers.cookie || '').split(';').map((c) => c.trim()).find((c) => c.startsWith(`${COOKIE}=`));
   if (!raw) return false;

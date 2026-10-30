@@ -148,6 +148,10 @@
 .adm-error { color: var(--adm-red); font-weight: 600; font-size: 0.9rem; }
 
 /* save bar */
+.adm-area-switcher { display: grid; gap: 4px; padding: 12px; border-bottom: 1px solid var(--line); }
+.adm-area-switcher button { border: 0; background: transparent; padding: 9px 10px; text-align: left; font: inherit; cursor: pointer; color: inherit; }
+.adm-area-switcher button[aria-current="page"] { background: var(--ink); color: #fff; }
+.adm-accounting { max-width: 760px; }
 .adm-savebar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: flex-end; align-items: center; gap: 16px;
   padding: 12px 20px; background: #fff; border-top: 1px solid var(--line); box-shadow: 0 -8px 24px -16px rgba(0, 0, 0, 0.3);

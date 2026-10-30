@@ -1,0 +1,26 @@
+/* Ledger statement print layout (port of the ERP's .statement-print rules, in SRA colours).
+   The shell already hides the sidebar and top bar when printing. */
+@media print {
+  @page { size: A4 portrait; margin: 15mm 12mm; }
+  #erp-root .statement-print { width: 100% !important; max-width: none !important; padding: 0 !important; margin: 0 !important; }
+  #erp-root .statement-print .stmt-table { display: block !important; box-shadow: none !important; border: none !important; }
+  #erp-root .statement-print .stmt-table > div { overflow: visible !important; }
+  #erp-root .statement-print .stmt-cards { display: none !important; }
+  #erp-root .statement-print .print-header-block {
+    display: block !important; border-left: 4px solid #8A6634; padding: 10px 14px; margin-bottom: 20px;
+    background: #F8F3EA !important; border-radius: 0 4px 4px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  #erp-root .statement-print .print-header-company { font-size: 18px; font-weight: 700; color: #1C1C1A; margin-bottom: 4px; }
+  #erp-root .statement-print .print-header-title { font-size: 13px; font-weight: 600; letter-spacing: 0.5px; color: #555; margin: 1px 0 6px; }
+  #erp-root .statement-print .print-header-block p { margin: 1px 0; font-size: 11px; color: #444; line-height: 1.6; }
+  #erp-root .statement-print table { width: 100% !important; min-width: 0 !important; font-size: 12px; table-layout: auto; }
+  #erp-root .statement-print thead { display: table-header-group; }
+  #erp-root .statement-print thead tr { background: #2E2F28 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #erp-root .statement-print thead th { color: #fff !important; padding: 10px 12px !important; font-size: 10.5px; letter-spacing: 0.8px; }
+  #erp-root .statement-print tbody tr { break-inside: avoid; border-bottom: 1px solid #E4E3DF; }
+  #erp-root .statement-print tbody tr:nth-child(even) { background: #FAFAF8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #erp-root .statement-print tbody td { padding: 8px 12px !important; vertical-align: top; font-size: 12px; overflow-wrap: anywhere; }
+  #erp-root .statement-print tbody td:first-child { white-space: nowrap; }
+  #erp-root .statement-print .amount-col { min-width: 100px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  #erp-root .statement-print .stmt-total-row td { background: #F5F4F1 !important; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

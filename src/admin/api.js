@@ -16,9 +16,19 @@ async function call(action, { method = 'GET', body } = {}) {
 }
 
 export const api = {
-  session: () => call('session'),
-  login: (password) => call('login', { method: 'POST', body: { password } }),
-  logout: () => call('logout', { method: 'POST' }),
+  session: async () => {
+    const result = await fetch('/api/erp/auth/session', { credentials: 'same-origin' });
+    if (!result.ok) return { loggedIn: false };
+    const { user } = await result.json();
+    return { loggedIn: Boolean(user), user };
+  },
+  login: async (username, password) => {
+    const result = await fetch('/api/erp/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+    const data = await result.json().catch(() => ({}));
+    if (!result.ok) { const error = new Error(data.error || 'Unable to log in.'); error.status = result.status; throw error; }
+    return data;
+  },
+  logout: async () => { await fetch('/api/erp/auth/logout', { method: 'POST', credentials: 'same-origin' }); },
   getContent: () => call('content'),
   saveContent: (content) => call('content', { method: 'PUT', body: { content } }),
   history: () => call('history'),

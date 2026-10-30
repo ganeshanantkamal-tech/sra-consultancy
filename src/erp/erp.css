@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+
+/* Tailwind's preflight is off (it would restyle the public website), so the parts of it the
+   accounting screens rely on are applied here, inside #erp-root only. */
+#erp-root {
+  font-family: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1C1C1A;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+#erp-root *, #erp-root *::before, #erp-root *::after { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #E4E3DF; }
+#erp-root h1, #erp-root h2, #erp-root h3, #erp-root h4, #erp-root p, #erp-root figure, #erp-root dl, #erp-root dd { margin: 0; }
+#erp-root h1, #erp-root h2, #erp-root h3, #erp-root h4 { font-size: inherit; font-weight: inherit; }
+#erp-root ul, #erp-root ol { list-style: none; margin: 0; padding: 0; }
+#erp-root a { color: inherit; text-decoration: inherit; }
+#erp-root button, #erp-root input, #erp-root select, #erp-root textarea {
+  font-family: inherit; font-size: 100%; font-weight: inherit; line-height: inherit; color: inherit; margin: 0; padding: 0; background-color: transparent;
+}
+#erp-root button, #erp-root [role="button"] { cursor: pointer; text-transform: none; }
+#erp-root button:disabled { cursor: not-allowed; }
+#erp-root table { border-collapse: collapse; text-indent: 0; border-color: inherit; }
+#erp-root img, #erp-root svg { display: block; vertical-align: middle; }
+#erp-root img { max-width: 100%; height: auto; }
+#erp-root input::placeholder, #erp-root textarea::placeholder { color: #A8A69F; opacity: 1; }
+#erp-root textarea { resize: vertical; }
+#erp-root [hidden] { display: none; }
+
+/* Inputs share one look: the ERP's field style in the site's colours. Scoped with the id so
+   these win over the reset above (which also carries the id). */
+#erp-root .erp-input {
+  width: 100%; border-radius: 0.5rem; border: 1px solid #E4E3DF; background-color: #fff;
+  padding: 0.625rem 0.875rem; font-size: 0.875rem; line-height: 1.25rem; color: #1C1C1A;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+#erp-root .erp-input:focus { border-color: #B98E57; box-shadow: 0 0 0 3px rgba(185, 142, 87, 0.25); }
+#erp-root .erp-input:disabled, #erp-root .erp-input[readonly] { background-color: #F5F4F1; color: #66655F; }
+#erp-root select.erp-input { padding-right: 2rem; }
+#erp-root .erp-label { display: block; margin-bottom: 0.25rem; font-size: 0.75rem; line-height: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: -0.025em; color: #66655F; }
+
+#erp-root .scrollbar-none::-webkit-scrollbar { display: none; }
+#erp-root .scrollbar-none { scrollbar-width: none; }
+
+@keyframes erp-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+#erp-root .animate-shake { animation: erp-shake 0.25s ease-in-out 2; }
+@keyframes erp-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+#erp-root .animate-toast { animation: erp-toast-in 0.18s ease-out; }
+
+@media print {
+  #erp-root .no-print { display: none !important; }
+  #erp-root aside, #erp-root header.erp-topbar { display: none !important; }
+  #erp-root .erp-shell, #erp-root .erp-scroll { height: auto !important; overflow: visible !important; }
+}
+
+/* Utilities last, so a class on a field (e.g. bg-paper, font-mono) can override .erp-input. */
+@tailwind utilities;

@@ -1,13 +1,36 @@
 {
-  "regions": ["cle1"],
+  "regions": [
+    "cle1"
+  ],
   "rewrites": [
-    { "source": "/admin", "destination": "/index.html" },
-    { "source": "/admin/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/erp/(.*)",
+      "destination": "/api/erp"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/admin(.*)",
-      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
     }
-  ]
+  ],
+  "functions": {
+    "api/erp.ts": {
+      "maxDuration": 300,
+      "memory": 1769
+    }
+  }
 }
