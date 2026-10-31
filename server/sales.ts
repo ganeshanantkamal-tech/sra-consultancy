@@ -139,7 +139,7 @@ router.post('/quotations/:id/convert', requirePermission('bills_quotes'), (req: 
   const unpriced = items.filter((item) => item.kind === 'item' && item.rate === null).length;
   if (unpriced) throw new Error(`${unpriced} line${unpriced === 1 ? ' has' : 's have'} no rate yet. Edit the quotation and fill in every rate before converting it to an invoice.`);
   const docDate = req.body?.date || today(); const dueDate = req.body?.dueDate || docDate;
-  const invoice = await createInvoice(client, { clientLedgerId: quote.client_ledger_id, date: docDate, dueDate, placeOfSupplyStateCode: quote.place_of_supply_state_code, isNonGst: quote.is_nongst, items, narration: quote.notes, terms: quote.terms, subject: quote.subject, siteReference: quote.site_reference }, req.user.id, quote.id);
+  const invoice = await createInvoice(client, { clientLedgerId: quote.client_ledger_id, date: docDate, dueDate, placeOfSupplyStateCode: quote.place_of_supply_state_code, isNonGst: quote.is_nongst, items, narration: quote.notes, terms: quote.terms, subject: String(quote.subject || '').replace(/^quotation for\s+/i, 'Bill for '), siteReference: quote.site_reference }, req.user.id, quote.id);
   await client.query(`UPDATE quotations SET status='converted', updated_at=now() WHERE id=$1`, [quote.id]);
   return invoice;
 })));
