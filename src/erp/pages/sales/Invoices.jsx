@@ -7,7 +7,7 @@ import { useFY } from '../../context.jsx';
 import DataTable from '../../components/DataTable.jsx';
 import { Alert, Button, IconButton, Page, PageHeader, StatusBadge, useFeedback } from '../../components/ui.jsx';
 import DocumentForm from './DocumentForm.jsx';
-import { FilterChips, Money, Tile, copyShareLink, invoiceStatus, rupees, useMasters } from './shared.jsx';
+import { FilterChips, Money, Subject, Tile, copyShareLink, invoiceStatus, rupees, useMasters } from './shared.jsx';
 
 const STATUSES = [['all', 'All'], ['unpaid', 'Unpaid'], ['partial', 'Partly Paid'], ['overdue', 'Overdue'], ['paid', 'Paid'], ['cancelled', 'Cancelled']];
 const LABELS = { unpaid: 'Unpaid', partial: 'Partly paid', overdue: 'Overdue', paid: 'Paid', cancelled: 'Cancelled' };
@@ -69,7 +69,8 @@ export default function Invoices({ nonGst, createSignal, onConsumed, onCreateNot
     list.map((i) => [i.invoiceNo, showDate(i.date), showDate(i.dueDate), i.clientName, i.placeOfSupplyStateCode || '', rupees(i.grandTotal), rupees(i.settled), rupees(i.balance), LABELS[i.payStatus]]));
 
   const columns = [
-    { key: 'invoiceNo', label: 'Invoice #', sortable: true, primaryLabel: true, render: (v) => <span className="whitespace-nowrap font-bold text-ink">{v}</span> },
+    { key: 'invoiceNo', label: 'Invoice #', sortable: true, primaryLabel: true,
+      render: (v, row) => <span className="block max-w-[240px]"><span className="whitespace-nowrap font-bold text-ink">{v}</span><Subject row={row} /></span> },
     { key: 'date', label: 'Date', sortable: true, secondaryLabel: true,
       render: (v, row) => <span className="whitespace-nowrap text-muted">{showDate(v)}{row.status === 'active' && row.dueDate && <span className={`block text-[11px] ${row.payStatus === 'overdue' ? 'font-semibold text-red-600' : ''}`}>Due {showDate(row.dueDate)}</span>}</span> },
     { key: 'clientName', label: 'Client', sortable: true, render: (v) => <span className="font-medium text-[#4A4944]">{v}</span> },

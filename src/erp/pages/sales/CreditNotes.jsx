@@ -7,7 +7,7 @@ import { useFY } from '../../context.jsx';
 import DataTable from '../../components/DataTable.jsx';
 import { Alert, Button, IconButton, Page, PageHeader, StatusBadge, useFeedback } from '../../components/ui.jsx';
 import DocumentForm from './DocumentForm.jsx';
-import { FilterChips, Tile, copyShareLink, rupees, useMasters } from './shared.jsx';
+import { FilterChips, Subject, Tile, copyShareLink, rupees, useMasters } from './shared.jsx';
 
 const FILTERS = [['all', 'All'], ['C', 'Credit'], ['D', 'Debit'], ['cancelled', 'Cancelled']];
 
@@ -68,8 +68,11 @@ export default function CreditNotes({ nonGst, createSignal, onConsumed }) {
   const columns = [
     { key: 'noteNo', label: 'Note #', sortable: true, primaryLabel: true,
       render: (v, row) => (
-        <span className="whitespace-nowrap font-bold text-ink">{v}
-          <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold ${row.noteType === 'D' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{row.noteType === 'D' ? 'Debit' : 'Credit'}</span>
+        <span className="block max-w-[240px]">
+          <span className="whitespace-nowrap font-bold text-ink">{v}
+            <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold ${row.noteType === 'D' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{row.noteType === 'D' ? 'Debit' : 'Credit'}</span>
+          </span>
+          <Subject row={row} />
         </span>
       ) },
     { key: 'date', label: 'Date', sortable: true, secondaryLabel: true, render: (v) => <span className="text-muted">{showDate(v)}</span> },

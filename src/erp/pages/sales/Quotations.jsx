@@ -7,7 +7,7 @@ import { useFY } from '../../context.jsx';
 import DataTable from '../../components/DataTable.jsx';
 import { Alert, Button, IconButton, Page, PageHeader, StatusBadge, useFeedback } from '../../components/ui.jsx';
 import DocumentForm from './DocumentForm.jsx';
-import { FilterChips, Money, Tile, copyShareLink, rupees, useMasters } from './shared.jsx';
+import { FilterChips, Money, Subject, Tile, copyShareLink, rupees, useMasters } from './shared.jsx';
 
 const STATUSES = [['all', 'All'], ['draft', 'Draft'], ['approved', 'Approved'], ['converted', 'Converted'], ['cancelled', 'Cancelled']];
 
@@ -41,7 +41,17 @@ export default function Quotations({ nonGst, createSignal, onConsumed }) {
     try { setForm({ editing: await api.get(`/quotations/${row.id}`) }); } catch (err) { toast(err.message, 'error'); }
   };
   const approve = (row) => run(() => api.post(`/quotations/${row.id}/approve`), `${row.quotationNo} approved. You can now convert it to an invoice.`);
+  // Blank rates block conversion; offer to open the quotation to fill them in.
+  const askForRates = async (row, message) => {
+    const ok = await confirm({ title: 'Rates missing', message, confirmLabel: 'Edit Quotation' });
+    if (ok) edit(row);
+  };
   const convert = async (row) => {
+    try {
+      const detail = await api.get(`/quotations/${row.id}`);
+      const unpriced = detail.items.filter((i) => (i.kind || 'item') === 'item' && i.rate === null).length;
+      if (unpriced) { askForRates(row, `${row.quotationNo} has ${unpriced} line${unpriced === 1 ? '' : 's'} without a rate. Fill in every rate before converting it to an invoice. Editing moves the quotation back to draft, so approve it again afterwards.`); return; }
+    } catch (err) { toast(err.message, 'error'); return; }
     const date = await confirm({
       title: 'Convert to Invoice',
       message: <>Create a sales invoice from <b>{row.quotationNo}</b> for <b>{row.clientName}</b>? The quotation is marked converted and can no longer be edited.</>,
@@ -54,7 +64,9 @@ export default function Quotations({ nonGst, createSignal, onConsumed }) {
       const result = await api.post(`/quotations/${row.id}/convert`, { date, dueDate: addDays(date, days) });
       toast(`Invoice ${result.invoiceNo} created from ${row.quotationNo}.`);
       load();
-    } catch (err) { toast(err.message, 'error'); }
+    } catch (err) {
+      if (/no rate/i.test(err.message)) askForRates(row, err.message); else toast(err.message, 'error');
+    }
   };
   const cancel = async (row) => {
     const ok = await confirm({ title: `Cancel ${row.quotationNo}?`, tone: 'danger', confirmLabel: 'Cancel Quotation', message: 'The quotation will be marked as CANCELLED and remain visible in the list. Its share link stops working. This cannot be undone.' });
@@ -66,13 +78,18 @@ export default function Quotations({ nonGst, createSignal, onConsumed }) {
   };
 
   const exportCsv = (list) => downloadCsv(`${nonGst ? 'NonGST_' : ''}Quotations_${localDate()}.csv`,
-    ['Quotation No', 'Date', 'Client Name', 'Valid Until', 'Total Amount', 'Status', 'Invoice No'],
-    list.map((q) => [q.quotationNo, showDate(q.date), q.clientName, q.validUntil ? showDate(q.validUntil) : '', rupees(q.grandTotal), q.status, q.invoiceNo || '']));
+    ['Quotation No', 'Date', 'Client Name', 'Subject', 'Site', 'Valid Until', 'Total Amount', 'Status', 'Invoice No'],
+    list.map((q) => [q.quotationNo, showDate(q.date), q.clientName, q.subject || '', q.siteReference || '', q.validUntil ? showDate(q.validUntil) : '', rupees(q.grandTotal), q.status, q.invoiceNo || '']));
 
   const today = localDate();
   const columns = [
     { key: 'quotationNo', label: 'Quote #', sortable: true, primaryLabel: true,
-      render: (v, row) => <span className="whitespace-nowrap font-bold text-ink">{v}{row.estimateId && <span className="ml-2 rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-bold text-brand">AI estimate</span>}</span> },
+      render: (v, row) => (
+        <span className="block max-w-[240px]">
+          <span className="whitespace-nowrap font-bold text-ink">{v}{row.estimateId && <span className="ml-2 rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-bold text-brand">AI estimate</span>}</span>
+          <Subject row={row} />
+        </span>
+      ) },
     { key: 'date', label: 'Date', sortable: true, secondaryLabel: true,
       render: (v, row) => {
         const expired = ['draft', 'approved'].includes(row.status) && row.validUntil && row.validUntil < today;

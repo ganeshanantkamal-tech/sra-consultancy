@@ -6,6 +6,7 @@ import { Router } from "express";
 import { db, tx } from "./db/pool.js";
 import { requirePermission } from "./auth.js";
 import { createQuotation, today } from "./sales.js";
+import { UNITS } from "./units.js";
 
 const router = Router();
 const MAX_PHOTOS = 6;
@@ -64,7 +65,7 @@ const load = async (estimateId: string) => {
   if (!estimate) throw fail(404, "Estimate not found.");
   estimate.items = (
     await db().query(
-      `SELECT id, position, description, material, labour, other_cost AS "other", low_rate AS "lowRate", high_rate AS "highRate", rate_mode AS "rateMode", custom_rate AS "customRate", selected_rate AS "selectedRate", included, hsn_sac AS "hsnSac", gst_rate_pct AS "gstRatePct", notes FROM estimate_items WHERE estimate_id=$1 ORDER BY position`,
+      `SELECT id, position, section, description, unit, qty::float AS qty, material, labour, other_cost AS "other", low_rate AS "lowRate", high_rate AS "highRate", rate_mode AS "rateMode", custom_rate AS "customRate", selected_rate AS "selectedRate", included, hsn_sac AS "hsnSac", gst_rate_pct AS "gstRatePct", notes FROM estimate_items WHERE estimate_id=$1 ORDER BY position`,
       [estimateId],
     )
   ).rows;
@@ -97,26 +98,29 @@ const saveItems = async (client: any, estimateId: string, raw: any[]) => {
   for (let position = 0; position < raw.length; position++) {
     const item = raw[position] || {};
     const label = `Item ${position + 1}`;
-    const description = text(item.description, 1000);
+    const description = text(item.description, 4000);
     if (!description) throw new Error(`${label} needs a description.`);
+    const unit = text(item.unit, 20) || "LS";
+    const qty = item.qty === undefined || item.qty === null || item.qty === "" ? 1 : Number(item.qty);
+    if (!Number.isFinite(qty) || qty <= 0 || qty > 1e9) throw new Error(`${label}: quantity must be greater than zero.`);
     const rateMode = ["low", "high", "custom"].includes(item.rateMode)
       ? item.rateMode
       : "low";
     const material = amount(item.material, `${label} material`);
     const labour = amount(item.labour, `${label} labour`);
     const other = amount(item.other, `${label} other cost`);
-    const lowRate = amount(item.lowRate ?? item.low, `${label} low total`);
-    const highRate = amount(item.highRate ?? item.high, `${label} high total`);
+    const lowRate = amount(item.lowRate ?? item.low, `${label} low rate`);
+    const highRate = amount(item.highRate ?? item.high, `${label} high rate`);
     if (highRate < lowRate)
-      throw new Error(`${label}: the high total cannot be below the low total.`);
+      throw new Error(`${label}: the high rate cannot be below the low rate.`);
     const customRate =
       item.customRate === null ||
       item.customRate === undefined ||
       item.customRate === ""
         ? null
-        : amount(item.customRate, `${label} custom amount`);
+        : amount(item.customRate, `${label} custom rate`);
     if (rateMode === "custom" && customRate === null)
-      throw new Error(`${label}: enter the custom amount.`);
+      throw new Error(`${label}: enter the custom rate.`);
     const rate =
       rateMode === "high"
         ? highRate
@@ -127,7 +131,7 @@ const saveItems = async (client: any, estimateId: string, raw: any[]) => {
     if (![0, 5, 12, 18, 28].includes(gstRatePct))
       throw new Error(`${label}: choose a valid GST rate.`);
     await client.query(
-      `INSERT INTO estimate_items (estimate_id,position,description,material,labour,other_cost,low_rate,high_rate,rate_mode,custom_rate,selected_rate,included,hsn_sac,gst_rate_pct,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      `INSERT INTO estimate_items (estimate_id,position,description,material,labour,other_cost,low_rate,high_rate,rate_mode,custom_rate,selected_rate,included,hsn_sac,gst_rate_pct,notes,section,unit,qty) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [
         estimateId,
         position,
@@ -144,6 +148,9 @@ const saveItems = async (client: any, estimateId: string, raw: any[]) => {
         text(item.hsnSac, 20),
         gstRatePct,
         text(item.notes, 2000),
+        text(item.section, 200),
+        unit,
+        qty,
       ],
     );
   }
@@ -155,7 +162,7 @@ router.get("/estimates", requirePermission("estimates"), (_, res) =>
     async () =>
       (
         await db().query(
-          `SELECT e.id,e.title,e.location,e.status,e.is_nongst AS "isNonGst",e.contingency_pct::float AS "contingencyPct",e.created_at AS "createdAt",l.name AS "clientName",q.quotation_no AS "quotationNo",e.quotation_id AS "quotationId",(SELECT count(*)::int FROM estimate_photos p WHERE p.estimate_id=e.id) AS photos,(SELECT count(*)::int FROM estimate_items i WHERE i.estimate_id=e.id) AS items,(SELECT COALESCE(SUM(i.selected_rate),0)::bigint FROM estimate_items i WHERE i.estimate_id=e.id AND i.included) AS "quotedBase" FROM estimates e LEFT JOIN ledgers l ON l.id=e.client_ledger_id LEFT JOIN quotations q ON q.id=e.quotation_id ORDER BY e.created_at DESC`,
+          `SELECT e.id,e.title,e.location,e.status,e.is_nongst AS "isNonGst",e.contingency_pct::float AS "contingencyPct",e.created_at AS "createdAt",l.name AS "clientName",q.quotation_no AS "quotationNo",e.quotation_id AS "quotationId",(SELECT count(*)::int FROM estimate_photos p WHERE p.estimate_id=e.id) AS photos,(SELECT count(*)::int FROM estimate_items i WHERE i.estimate_id=e.id) AS items,(SELECT COALESCE(SUM(round(i.qty * i.selected_rate)),0)::bigint FROM estimate_items i WHERE i.estimate_id=e.id AND i.included) AS "quotedBase" FROM estimates e LEFT JOIN ledgers l ON l.id=e.client_ledger_id LEFT JOIN quotations q ON q.id=e.quotation_id ORDER BY e.created_at DESC`,
         )
       ).rows,
   ),
@@ -400,8 +407,8 @@ router.delete(
     ),
 );
 
-// Claude returns whole rupees (converted to paise here), so a slip cannot inflate amounts 100×.
-// Low total = material + labour + other, as in the RCC cost-sheet template (F = C + D + E).
+// Claude returns whole rupees per unit (converted to paise here), so a slip cannot inflate
+// amounts 100×. Low rate = material + labour + other per unit; amount = qty × rate.
 const ESTIMATE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -415,13 +422,16 @@ const ESTIMATE_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["description", "material", "labour", "other", "high", "notes"],
+        required: ["section", "description", "unit", "qty", "material", "labour", "other", "high", "notes"],
         properties: {
-          description: { type: "string", description: "Stage / work description." },
-          material: { type: "integer", description: "Material / equipment allowance in whole rupees." },
-          labour: { type: "integer", description: "Labour / professional fee in whole rupees." },
-          other: { type: "integer", description: "Other / disposal cost in whole rupees." },
-          high: { type: "integer", description: "Upper-bound total for this line in whole rupees; at least material + labour + other." },
+          section: { type: "string", description: "BOQ section heading this line belongs to, e.g. 'Preparatory works', 'Structural repair works', 'Finishing works'." },
+          description: { type: "string", description: "Full BOQ item specification: what is done, how, materials and standard, like a contractor's tender item." },
+          unit: { type: "string", enum: UNITS, description: "Unit of measurement. Use LS with qty 1 for lump-sum stages such as inspection or design." },
+          qty: { type: "number", description: "Estimated quantity in that unit, from what the photos and brief show." },
+          material: { type: "integer", description: "Material / equipment rate per unit in whole rupees." },
+          labour: { type: "integer", description: "Labour / professional fee per unit in whole rupees." },
+          other: { type: "integer", description: "Other / disposal cost per unit in whole rupees." },
+          high: { type: "integer", description: "Upper-bound rate per unit in whole rupees; at least material + labour + other." },
           notes: { type: "string", description: "Short note or assumption for this line." },
         },
       },
@@ -434,7 +444,7 @@ const ESTIMATE_SCHEMA = {
 } as const;
 const SYSTEM_PROMPT = `You are a senior civil and structural repair estimator in India who prepares preliminary labour-and-material budgets from site photos for SRA Consultancy.
 
-Produce an indicative bill of quantities in the style of SRA's cost sheet: numbered stages from inspection and engineering, through temporary works, safety, demolition or repair, disposal, services, finishing, to completion inspection. Price each line in whole Indian rupees at current local market rates for the given city, split into material/equipment, labour/professional fee, and other/disposal. Give an upper-bound "high" figure per line that reflects realistic variation in scope and access.
+Produce an indicative bill of quantities in the format Indian structural repair contractors use: lines grouped under section headings (for example Preparatory works, Structural repair works, Waterproofing, Finishing works), each line a full tender-style specification with a unit of measurement (Sqft, Rmt, Cum, Kg, Nos, LS…) and an estimated quantity read from the photos and brief. Cover the stages from inspection and engineering, through scaffolding, temporary supports and safety, breaking and repair, disposal and services, to finishing and completion inspection. Price each line per unit in whole Indian rupees at current local market rates for the given city, split into material/equipment, labour/professional fee, and other/disposal, and give an upper-bound "high" rate per unit that reflects realistic variation. Use LS with quantity 1 for lump-sum stages. State quantity assumptions in the line notes.
 
 Only describe what the photos and brief support. Where the structural system, reinforcement or load path cannot be confirmed from photos, say so in the assumptions and keep major structural work (transfer beams, new columns, foundations, steel frames) out of the base total, listing it under exclusions instead. Never state that a structural member can be safely removed or cut. Use a contingency of 10–20% depending on uncertainty.`;
 
@@ -523,7 +533,11 @@ router.post(
           const labour = rupees(x.labour);
           const other = rupees(x.other);
           const low = material + labour + other;
+          const qty = Number(x.qty) > 0 ? Math.round(Number(x.qty) * 1000) / 1000 : 1;
           return {
+            section: text(x.section, 200),
+            unit: UNITS.includes(x.unit) ? x.unit : "LS",
+            qty,
             description: x.description,
             material,
             labour,
@@ -561,23 +575,26 @@ router.post(
     }),
 );
 
-// Layout follows RCC_column_structural_work_labour_material_cost_sheet.xlsx: live formulas for
-// line totals (F = C+D+E), subtotals, contingency and grand totals, plus a Summary sheet that
-// reads its figures from the BOQ sheet.
+// Layout follows RCC_column_structural_work_labour_material_cost_sheet.xlsx, extended to a
+// structural BOQ: section rows, unit and quantity, per-unit rates (low rate = material + labour +
+// other) and live amount formulas (qty × rate), subtotals, contingency and grand totals, plus a
+// Summary sheet that reads its figures from the BOQ sheet.
 const NAVY = "FF20364D";
 const BLUE = "FF356A86";
 const LIGHT = "FFDDEBF2";
 const GREEN = "FFC6E0B4";
 const PEACH = "FFFCE4D6";
-const INR = "₹#,##0";
+const SECTION = "FFEEF2F6";
+const INR = "₹#,##0.##";
 const fill = (argb: string) => ({ type: "pattern" as const, pattern: "solid" as const, fgColor: { argb } });
 export async function estimateWorkbook(estimate: any) {
   const book = new ExcelJS.Workbook();
   book.creator = "SRA Consultancy";
   const boq = book.addWorksheet("BOQ Estimate", { views: [{ state: "frozen", ySplit: 4 }] });
-  [7, 52, 22, 22, 18, 17, 17, 20, 44].forEach((width, i) => (boq.getColumn(i + 1).width = width));
+  // A Sr | B Description | C Unit | D Qty | E Material | F Labour | G Other | H Low rate | I High rate | J Quoted rate | K Low amt | L High amt | M Quoted amt | N Notes
+  [7, 56, 9, 10, 14, 14, 13, 13, 13, 13, 16, 16, 16, 40].forEach((width, i) => (boq.getColumn(i + 1).width = width));
   const banner = (row: number, value: string, opts: { bold?: boolean; color?: string; size?: number; argb?: string } = {}) => {
-    boq.mergeCells(`A${row}:I${row}`);
+    boq.mergeCells(`A${row}:N${row}`);
     const cell = boq.getCell(`A${row}`);
     cell.value = value;
     cell.font = { bold: opts.bold, size: opts.size, color: opts.color ? { argb: opts.color } : undefined };
@@ -588,34 +605,48 @@ export async function estimateWorkbook(estimate: any) {
   banner(2, estimate.basisLine || `Indicative budget for ${estimate.location || "site"} | INR | Based on photos and limited information; not a structural design or contractor quotation`);
   boq.getRow(2).height = 30;
   const header = boq.getRow(4);
-  header.values = ["Sr.", "Stage / Work Description", "Material / Equipment Allowance (₹)", "Labour / Professional Fee (₹)", "Other / Disposal (₹)", "Low Total (₹)", "High Total (₹)", "Quoted (₹)", "Notes / Assumptions"];
+  header.values = ["Sr.", "Description of Work", "Unit", "Qty", "Material / Unit (₹)", "Labour / Unit (₹)", "Other / Unit (₹)", "Low Rate (₹)", "High Rate (₹)", "Quoted Rate (₹)", "Low Amount (₹)", "High Amount (₹)", "Quoted Amount (₹)", "Notes / Assumptions"];
   header.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = fill(BLUE);
-    cell.alignment = { wrapText: true, vertical: "middle" };
+    cell.alignment = { wrapText: true, vertical: "middle", horizontal: "center" };
   });
-  header.height = 32;
+  header.height = 34;
   const included = estimate.items.filter((i: any) => i.included);
   const optional = estimate.items.filter((i: any) => !i.included);
   const first = 5;
-  included.forEach((item: any, index: number) => {
-    const r = first + index;
-    const quoted =
-      item.rateMode === "high" ? { formula: `G${r}` } : item.rateMode === "custom" ? Number(item.customRate ?? item.selectedRate) / 100 : { formula: `F${r}` };
+  let r = first;
+  let section: string | null = null;
+  let sections = 0;
+  let number = 0;
+  for (const item of included) {
+    const heading = String(item.section || "").trim();
+    if (heading && heading !== section) {
+      sections += 1;
+      number = 0;
+      const row = boq.getRow(r++);
+      row.getCell(1).value = String.fromCharCode(64 + ((sections - 1) % 26) + 1);
+      row.getCell(2).value = heading.toUpperCase();
+      for (let c = 1; c <= 14; c++) { row.getCell(c).fill = fill(SECTION); row.getCell(c).font = { bold: true }; }
+    }
+    section = heading;
+    number += 1;
     const row = boq.getRow(r);
-    row.values = [index + 1, item.description, Number(item.material) / 100, Number(item.labour) / 100, Number(item.other) / 100, { formula: `C${r}+D${r}+E${r}` }, Number(item.highRate) / 100, quoted, item.notes || ""];
-    // A low total typed in by hand that differs from C+D+E is kept as a value.
-    if (Number(item.lowRate) !== Number(item.material) + Number(item.labour) + Number(item.other)) row.getCell(6).value = Number(item.lowRate) / 100;
-    row.getCell(2).alignment = row.getCell(9).alignment = { wrapText: true, vertical: "top" };
-    [3, 4, 5, 6, 7, 8].forEach((c) => (row.getCell(c).numFmt = INR));
-  });
-  const last = first + Math.max(included.length, 1) - 1;
-  let r = last + 1;
+    const quoted = item.rateMode === "high" ? { formula: `I${r}` } : item.rateMode === "custom" ? Number(item.customRate ?? item.selectedRate) / 100 : { formula: `H${r}` };
+    row.values = [number, item.description, item.unit || "LS", Number(item.qty) || 1, Number(item.material) / 100, Number(item.labour) / 100, Number(item.other) / 100, { formula: `E${r}+F${r}+G${r}` }, Number(item.highRate) / 100, quoted, { formula: `D${r}*H${r}` }, { formula: `D${r}*I${r}` }, { formula: `D${r}*J${r}` }, item.notes || ""];
+    // A low rate typed in by hand that differs from material + labour + other is kept as a value.
+    if (Number(item.lowRate) !== Number(item.material) + Number(item.labour) + Number(item.other)) row.getCell(8).value = Number(item.lowRate) / 100;
+    row.getCell(2).alignment = row.getCell(14).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(3).alignment = { horizontal: "center", vertical: "top" };
+    [5, 6, 7, 8, 9, 10, 11, 12, 13].forEach((c) => (row.getCell(c).numFmt = INR));
+    r += 1;
+  }
+  const last = Math.max(r - 1, first);
   optional.forEach((item: any) => {
     const row = boq.getRow(r++);
-    row.values = ["", `OPTIONAL / NOT INCLUDED: ${item.description}`, Number(item.material) / 100 || "", Number(item.labour) / 100 || "", Number(item.other) / 100 || "", "NOT INCLUDED", "NOT INCLUDED", "", item.notes || ""];
+    row.values = ["", `OPTIONAL / NOT INCLUDED: ${item.description}`, item.unit || "", Number(item.qty) || "", Number(item.material) / 100 || "", Number(item.labour) / 100 || "", Number(item.other) / 100 || "", "", "", "", "NOT INCLUDED", "NOT INCLUDED", "", item.notes || ""];
     row.eachCell((cell) => (cell.fill = fill(PEACH)));
-    row.getCell(2).alignment = row.getCell(9).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(2).alignment = row.getCell(14).alignment = { wrapText: true, vertical: "top" };
   });
   const pct = Number(estimate.contingencyPct) || 0;
   const subtotal = r + 1;
@@ -627,15 +658,15 @@ export async function estimateWorkbook(estimate: any) {
   for (const [rowNo, label, formula, colour] of totals) {
     const row = boq.getRow(rowNo);
     row.getCell(2).value = label;
-    for (const col of ["F", "G", "H"]) {
+    for (const col of ["K", "L", "M"]) {
       const cell = boq.getCell(`${col}${rowNo}`);
       cell.value = { formula: formula(col) };
       cell.numFmt = INR;
     }
-    [2, 3, 4, 5, 6, 7, 8].forEach((c) => {
+    for (let c = 2; c <= 13; c++) {
       row.getCell(c).fill = fill(colour);
       row.getCell(c).font = { bold: true };
-    });
+    }
   }
   let notes = subtotal + 4;
   if (estimate.importantNote) {
@@ -661,13 +692,14 @@ export async function estimateWorkbook(estimate: any) {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = fill(BLUE);
   });
+  const product = (col: string) => `SUMPRODUCT(${sheet}D${first}:D${last},${sheet}${col}${first}:${col}${last})`;
   const rows: [string, string, string, string][] = [
-    ["Materials / equipment allowances", `SUM(${sheet}C${first}:C${last})`, `SUM(${sheet}C${first}:C${last})`, ""],
-    ["Labour / professional fees", `SUM(${sheet}D${first}:D${last})`, `SUM(${sheet}D${first}:D${last})`, ""],
-    ["Other / disposal", `SUM(${sheet}E${first}:E${last})`, `SUM(${sheet}E${first}:E${last})`, ""],
-    ["Base subtotal", `${sheet}F${subtotal}`, `${sheet}G${subtotal}`, `${sheet}H${subtotal}`],
-    [`Contingency ${pct}%`, `${sheet}F${subtotal + 1}`, `${sheet}G${subtotal + 1}`, `${sheet}H${subtotal + 1}`],
-    ["Base total (optional / excluded work not included)", `${sheet}F${subtotal + 2}`, `${sheet}G${subtotal + 2}`, `${sheet}H${subtotal + 2}`],
+    ["Materials / equipment", product("E"), product("E"), ""],
+    ["Labour / professional fees", product("F"), product("F"), ""],
+    ["Other / disposal", product("G"), product("G"), ""],
+    ["Base subtotal", `${sheet}K${subtotal}`, `${sheet}L${subtotal}`, `${sheet}M${subtotal}`],
+    [`Contingency ${pct}%`, `${sheet}K${subtotal + 1}`, `${sheet}L${subtotal + 1}`, `${sheet}M${subtotal + 1}`],
+    ["Base total (optional / excluded work not included)", `${sheet}K${subtotal + 2}`, `${sheet}L${subtotal + 2}`, `${sheet}M${subtotal + 2}`],
   ];
   rows.forEach(([label, low, high, quoted], i) => {
     const row = summary.getRow(4 + i);
@@ -709,8 +741,9 @@ router.get(
   },
 );
 
-// Approval turns the reviewed lines into a draft quotation (qty 1 per line plus a separate
-// Contingency line) through the same code path as a hand-made quotation, then locks the estimate.
+// Approval turns the reviewed lines into a draft BOQ quotation (section headings, unit, qty and
+// rate per line, plus a separate Contingency line) through the same code path as a hand-made
+// quotation, then locks the estimate.
 router.post(
   "/estimates/:id/approve",
   requirePermission("estimates", "bills_quotes"),
@@ -734,20 +767,34 @@ router.post(
           const missing = included.find((item: any) => !item.hsnSac);
           if (missing) throw new Error(`Choose an HSN/SAC code and GST rate for "${missing.description}" or mark the estimate Non-GST.`);
         }
-        const items = included.map((item: any) => ({
-          description: item.description,
-          hsnSac: item.hsnSac,
-          qty: 1,
-          rate: Number(item.selectedRate),
-          gstRatePct: gst ? item.gstRatePct : 0,
-        }));
-        const base = items.reduce((n: number, item: any) => n + item.rate, 0);
+        const items: any[] = [];
+        let section: string | null = null;
+        for (const item of included) {
+          const heading = String(item.section || "").trim();
+          if (heading && heading !== section) items.push({ kind: "section", description: heading });
+          section = heading;
+          items.push({
+            kind: "item",
+            description: item.description,
+            unit: item.unit || "LS",
+            hsnSac: item.hsnSac,
+            qty: Number(item.qty) || 1,
+            rate: Number(item.selectedRate),
+            gstRatePct: gst ? item.gstRatePct : 0,
+          });
+        }
+        const priced = items.filter((item) => item.kind === "item");
+        const base = priced.reduce((n: number, item: any) => n + Math.round(item.qty * item.rate), 0);
         const contingency = Math.round((base * Number(estimate.contingencyPct)) / 100);
         if (contingency > 0) {
           // In GST mode the contingency follows the highest-rated line so it is not under-taxed.
-          const top = gst ? items.reduce((a: any, b: any) => (b.gstRatePct > a.gstRatePct ? b : a)) : null;
+          const top = gst ? priced.reduce((a: any, b: any) => (b.gstRatePct > a.gstRatePct ? b : a)) : null;
+          // With section headings in use, the contingency gets its own heading rather than being numbered as building work.
+          if (items.some((item) => item.kind === "section")) items.push({ kind: "section", description: "Contingency" });
           items.push({
+            kind: "item",
             description: `Contingency allowance (${Number(estimate.contingencyPct)}%)`,
+            unit: "LS",
             hsnSac: top?.hsnSac || "",
             qty: 1,
             rate: contingency,
@@ -770,8 +817,10 @@ router.post(
             placeOfSupplyStateCode: estimate.placeOfSupplyStateCode,
             isNonGst: estimate.isNonGst,
             items,
-            notes: [estimate.title, estimate.basisLine].filter(Boolean).join("\n"),
+            notes: estimate.basisLine || "",
             terms,
+            subject: `Quotation for ${estimate.title || "site repair works"}${estimate.location ? ` at ${estimate.location}` : ""}`,
+            siteReference: "",
           },
           req.user.id,
           estimateId,

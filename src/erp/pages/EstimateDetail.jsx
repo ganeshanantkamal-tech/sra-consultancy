@@ -15,7 +15,7 @@ import {
 } from '../components/ui.jsx';
 import LineGrid from './estimates/LineGrid.jsx';
 import { AnalysePanel, PhotosCard } from './estimates/Photos.jsx';
-import { approvalIssues, blankItem, estimateTotals, fromApi, patchItem, toApi } from './estimates/shared.js';
+import { approvalIssues, blankItem, estimateTotals, fromApi, groupBySection, patchItem, toApi } from './estimates/shared.js';
 
 const metaOf = (e) => ({
   title: e.title || '', location: e.location || '', buildingType: e.buildingType || '', problemNote: e.problemNote || '',
@@ -99,7 +99,7 @@ export default function EstimateDetail() {
   const load = useCallback(async () => {
     try {
       const e = await api.get(`/estimates/${id}`);
-      const m = metaOf(e); const list = e.items.map(fromApi);
+      const m = metaOf(e); const list = groupBySection(e.items.map(fromApi));
       setEstimate(e); setMeta(m); setItems(list); setSaved(snapshot(m, list)); setLoadError('');
       return e;
     } catch (err) {
@@ -138,7 +138,7 @@ export default function EstimateDetail() {
   const ready = hasItems && !dirty && !issues.length && estimate.status === 'analysed';
   const set = (key, value) => setMeta((m) => ({ ...m, [key]: value }));
   const update = (index, patch) => setItems((list) => list.map((item, i) => (i === index ? patchItem(item, patch) : item)));
-  const add = () => { setItems((list) => [...list, blankItem()]); setTimeout(() => sections.lines.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
+  const add = () => { setItems((list) => [...list, blankItem(list[list.length - 1]?.section || '')]); setTimeout(() => sections.lines.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
   const remove = async (index) => {
     const item = items[index];
     if (item.description || item.lowRate) {
@@ -315,7 +315,7 @@ export default function EstimateDetail() {
 
       <div ref={sections.lines} className="mt-6 scroll-mt-4">
         {gst && !locked && hasItems && <Alert tone="info">GST quotation: choose an HSN/SAC code and rate for every included line. The contingency line takes the highest rate so it is not under-taxed.</Alert>}
-        <LineGrid items={items} update={update} remove={remove} add={add} applyHsn={applyHsn} locked={locked} gst={gst} codes={codes} totals={totals} />
+        <LineGrid items={items} setItems={setItems} update={update} remove={remove} applyHsn={applyHsn} locked={locked} gst={gst} codes={codes} totals={totals} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-5">
@@ -353,7 +353,7 @@ export default function EstimateDetail() {
               ['High estimate (incl. contingency)', inr0(totals.high + totals.highCont)],
             ]} className="mb-4 rounded-xl bg-paper p-3" />
             <Summary rows={[
-              ['Quoted lines', inr0(totals.quoted)],
+              ['Quoted base (Σ qty × rate)', inr0(totals.quoted)],
               [`Contingency (${Number(meta.contingencyPct || 0)}%)`, inr0(totals.quotedCont)],
               gst && ['Estimated GST', inr0(totals.tax)],
               [gst ? 'Approx. quotation total' : 'Quotation total', <span key="t" className="text-brand">{inr0(totals.quoted + totals.quotedCont + totals.tax)}</span>, true],
@@ -368,7 +368,7 @@ export default function EstimateDetail() {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-3 text-xs leading-relaxed text-muted">Approving saves this review, creates a draft quotation (one line per included stage plus a contingency line) and locks the estimate.</p>
+                <p className="mt-3 text-xs leading-relaxed text-muted">Approving saves this review, creates a draft BOQ quotation (section headings, each included line with its unit, qty and quoted rate, plus a contingency line) and locks the estimate.</p>
               </div>
             )}
           </Card>
